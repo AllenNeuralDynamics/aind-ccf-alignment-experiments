@@ -137,3 +137,8 @@ dmypy.json
 
 # MacOs
 **/.DS_Store
+
+# Other
+data/
+notebooks/data/
+notebooks/.ipynb_checkpoints/
