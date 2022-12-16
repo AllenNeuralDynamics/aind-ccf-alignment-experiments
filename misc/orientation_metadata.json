@@ -3,7 +3,7 @@
       {
          "name": "X",
          "dimension": 0,
-         "direction": "Left_to_right",
+         "direction": "Right_to_left",
          "voxel_size": 1.8,
          "volume_size": 8640.0
       },
