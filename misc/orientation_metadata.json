@@ -1,0 +1,25 @@
+{
+  "axes": [
+      {
+         "name": "X",
+         "dimension": 0,
+         "direction": "Left_to_right",
+         "voxel_size": 1.8,
+         "volume_size": 8640.0
+      },
+      {
+         "name": "Y",
+         "dimension": 1,
+         "direction": "Inferior_to_superior",
+         "voxel_size": 1.8,
+         "volume_size": 21024.0
+      },
+      {
+         "name": "Z",
+         "dimension": 2,
+         "direction": "Anterior_tSupo_posterior",
+         "voxel_size": 2.0,
+         "volume_size": 18400.0
+      }
+   ],
+}
