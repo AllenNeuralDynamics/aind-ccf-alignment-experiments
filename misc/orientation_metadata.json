@@ -10,14 +10,14 @@
       {
          "name": "Y",
          "dimension": 1,
-         "direction": "Inferior_to_superior",
+         "direction": "Posterior_to_anterior",
          "voxel_size": 1.8,
          "volume_size": 21024.0
       },
       {
          "name": "Z",
          "dimension": 2,
-         "direction": "Anterior_tSupo_posterior",
+         "direction": "Superior_to_inferior",
          "voxel_size": 2.0,
          "volume_size": 18400.0
       }
