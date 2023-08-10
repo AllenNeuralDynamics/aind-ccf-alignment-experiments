@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aind_ccf_alignment_experiments"
+description = "Experimental scripts and notebooks aiding in SmartSPIM-to-CCF image registration and evaluation processes."
+license = {text = "MIT"}
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3"
+]
+dynamic = ["version", "readme"]
+
+dependencies = [
+  'itk',
+  'itk-elastix',
+  'numpy',
+  'pandas',
+  'vtk'
+]
+
+[project.scripts]
+
+aind-postprocess-cli = "aind_ccf_alignment_experiments.postprocess_cli:main"
+
+[project.optional-dependencies]
+ants = [
+  'antspyx',
+  'scipy'
+]
+
+notebook = [
+  'antspyx',
+  'itkwidgets[notebook]>=1.0a35',
+  'matplotlib',
+  # 'neuroglancer_interface',
+  'ngff-zarr',
+  'ome-zarr',
+  'plotly',
+  's3fs',
+  'scipy',
+  'seaborn',
+  'zarr',
+]
+
+develop = [
+  'black',
+  'pytest'
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "aind_ccf_alignment_experiments.__version__"}
+readme = {file = ["README.md"]}
+
+[tool.black]
+line-length = 79
+target_version = ['py38']
+exclude = '''
+
+(
+  /(
+      \.eggs         # exclude a few common directories in the
+    | \.git          # root of the project
+    | \.hg
+    | \.mypy_cache
+    | \.tox
+    | \.venv
+    | _build
+    | build
+    | dist
+  )/
+  | .gitignore
+)
+'''
