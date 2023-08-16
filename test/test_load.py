@@ -3,14 +3,17 @@
 # Purpose: Simple pytest to validate that module can be loaded.
 
 import sys
-sys.path.append("src/aind_ccf_alignment_experiments")
+
+sys.path.append("src")
 
 import itk
+
 itk.auto_progress(2)
 
+
 def test_loadmodule():
-    import label_methods
-    import point_distance
-    import postprocess_cli
-    import registration_methods
-    import url
+    import aind_ccf_alignment_experiments.label_methods
+    import aind_ccf_alignment_experiments.point_distance
+    import aind_ccf_alignment_experiments.postprocess_cli
+    import aind_ccf_alignment_experiments.registration_methods
+    import aind_ccf_alignment_experiments.url
