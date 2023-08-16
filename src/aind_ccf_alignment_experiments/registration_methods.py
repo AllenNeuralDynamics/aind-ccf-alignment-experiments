@@ -10,44 +10,6 @@ import itk
 import numpy as np
 
 
-def get_sample_bounds(image: itk.Image, transform: itk.Transform = None):
-    """Get the physical boundaries of the space sampled by the ITK image.
-    Each voxel in an ITK image is considered to be a sample of the spatial
-    volume occupied by that voxel taken at the spatial center of the volume.
-    The physical point returned at each discrete voxel coordinate is
-    considered to be the physical location of the sample point. We adjust by
-    half a voxel in each direction to get the bounds of the space sampled
-    by the image.
-    """
-    HALF_VOXEL_STEP = 0.5
-    dimension = image.GetImageDimension()
-    lower_index = itk.ContinuousIndex[itk.D, dimension]()
-    lower_index.Fill(-1 * HALF_VOXEL_STEP)
-    upper_index = itk.ContinuousIndex[itk.D, dimension]()
-    for dim in range(dimension):
-        upper_index.SetElement(dim, itk.size(image)[dim] + HALF_VOXEL_STEP)
-
-    image_bounds = np.array(
-        [
-            image.TransformContinuousIndexToPhysicalPoint(lower_index),
-            image.TransformContinuousIndexToPhysicalPoint(upper_index),
-        ]
-    )
-
-    if transform:
-        image_bounds = np.array(
-            [transform.TransformPoint(pt) for pt in image_bounds]
-        )
-
-    return (np.min(image_bounds, axis=0), np.max(image_bounds, axis=0))
-
-
-def get_physical_size(image: itk.Image, transform: itk.Transform = None):
-    """Get the distance along each size of the physical space sampled by the image"""
-    bounds = get_sample_bounds(image, transform)
-    return np.absolute(bounds[1] - bounds[0])
-
-
 def compute_initial_translation(
     source_image: itk.Image, target_image: itk.Image
 ) -> Tuple[itk.TranslationTransform, itk.Image]:
