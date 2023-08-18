@@ -65,8 +65,9 @@ def probe_image_at_point(
 
 
 def probe_image(
-    input_image: itk.Image, input_mesh: Union[vtk.vtkPolyData,itk.Mesh[itk.F, 3]]
-) -> Tuple[List[float], Union[vtk.vtkPolyData,itk.Mesh[itk.F, 3]]]:
+    input_image: itk.Image,
+    input_mesh: Union[vtk.vtkPolyData, itk.Mesh[itk.F, 3]],
+) -> Tuple[List[float], Union[vtk.vtkPolyData, itk.Mesh[itk.F, 3]]]:
     """Get the corresponding voxel intensity value at each point in space"""
     if type(input_mesh) == vtk.vtkPolyData:
         return probe_image_vtk(

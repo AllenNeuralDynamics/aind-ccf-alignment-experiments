@@ -7,9 +7,46 @@ Helpers for dealing with data locations and naming schema:
 - ITK-VTK-Viewer URLs
 """
 
+from dataclasses import dataclass
 import os
 import re
 from typing import List, Tuple
+
+
+@dataclass
+class SmartSPIMS3Info:
+    bucket_path: str
+    bucket_root: str
+    subject_id: int
+    acquisition_date: str
+    stitched_date: str
+    channel_id: str
+
+
+def parse_smartspim_bucket_path(bucket: str) -> SmartSPIMS3Info:
+    """
+    Parse SmartSPIM AWS S3 sample path based on naming rules
+    """
+    if not bucket.startswith("s3://"):
+        raise ValueError(
+            f"{bucket} is not a valid AWS S3 path. Did you forget the s3:// prefix?"
+        )
+
+    bucket_root = re.match("s3://([0-9a-zA-Z\-]*)/*", bucket).group(1)
+    subject_id = int(re.match(".*SmartSPIM_([0-9]*)_*", bucket).group(1))
+    acquisition_date = re.match(
+        ".*SmartSPIM_[0-9]*_([0-9\-\_]*)_stitched*", bucket
+    ).group(1)
+    stitched_date = re.match(".*_stitched_([0-9\-\_]*)/*", bucket).group(1)
+    channel_id = re.match(".*/(Ex_[0-9]*_Em_[0-9]*).zarr*", bucket).group(1)
+    return SmartSPIMS3Info(
+        bucket,
+        bucket_root,
+        subject_id,
+        acquisition_date,
+        stitched_date,
+        channel_id,
+    )
 
 
 def parse_sample_filepath(sample_filepath: str) -> Tuple[str, str, str, str]:
