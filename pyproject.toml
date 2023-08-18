@@ -15,6 +15,7 @@ dynamic = ["version", "readme"]
 dependencies = [
   'itk',
   'itk-elastix',
+  'itk-genericlabelinterpolator',
   'numpy',
   'pandas',
   'vtk'
@@ -37,6 +38,7 @@ notebook = [
   # 'neuroglancer_interface',
   'ngff-zarr',
   'ome-zarr',
+  'papermill',
   'plotly',
   's3fs',
   'scipy',
