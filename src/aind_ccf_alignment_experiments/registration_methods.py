@@ -55,6 +55,9 @@ def get_elx_itk_transforms(
         for transform_index, itk_transform_type in enumerate(
             itk_transform_types
         ):
+            if not itk_transform_type:  # skip on None
+                continue
+
             elx_transform = registration_method.GetNthTransform(
                 transform_index
             )
@@ -110,6 +113,7 @@ def register_elastix(
     source_image: itk.Image,
     target_image: itk.Image,
     parameter_object: itk.ParameterObject = None,
+    initial_transform: itk.Transform = None,
     itk_transform_types: List[type] = None,
     log_filepath: str = None,
     verbose: bool = False,
@@ -134,6 +138,10 @@ def register_elastix(
             itk.AffineTransform[itk.D, DIMENSION],
             itk.Euler3DTransform[itk.D],
         ]
+    if initial_transform and itk_transform_types[-1]:
+        # Cannot directly convert an external init ITK transfrom from Elastix
+        itk_transform_types.append(None)
+
     if log_filepath:
         os.makedirs(os.path.dirname(log_filepath), exist_ok=True)
 
@@ -148,6 +156,9 @@ def register_elastix(
         parameter_object=parameter_object,
     )
 
+    if initial_transform:
+        registration_method.SetExternalInitialTransform(initial_transform)
+
     if log_filepath:
         registration_method.SetLogToFile(True)
         registration_method.SetOutputDirectory(os.path.dirname(log_filepath))
@@ -159,6 +170,11 @@ def register_elastix(
     itk_composite_transform = get_elx_itk_transforms(
         registration_method, itk_transform_types
     )
+    if initial_transform:
+        itk_composite_transform.AppendTransform(initial_transform)
+        itk_composite_transform = flatten_composite_transform(
+            itk_composite_transform
+        )
 
     return (
         itk_composite_transform,
@@ -278,3 +294,36 @@ def register_ants(
     composite_transform.AddTransform(displacement_transform)
 
     return composite_transform, ants_result
+
+
+def flatten_composite_transform(
+    transform: itk.Transform,
+) -> itk.CompositeTransform[itk.D, 3]:
+    """
+    Recursively flatten an `itk.CompositeTransform` that may contain
+    `itk.CompositeTransform` members so that the output represents a
+    single layer of non-composite transforms.
+    """
+    inner_transforms = _flatten_composite_transform_recursive(transform)
+
+    output_transform = itk.CompositeTransform[itk.D, 3].New()
+    for transform in inner_transforms:
+        output_transform.AppendTransform(transform)
+    return output_transform
+
+
+def _flatten_composite_transform_recursive(
+    transform: itk.Transform,
+) -> List[itk.Transform]:
+    t = None
+    try:
+        t = itk.CompositeTransform[itk.D, 3].cast(transform)
+    except RuntimeError as e:
+        return [transform]
+
+    transform_list = []
+    for index in range(t.GetNumberOfTransforms()):
+        transform_list.append(
+            *_flatten_composite_transform_recursive(t.GetNthTransform(index))
+        )
+    return transform_list

@@ -14,7 +14,7 @@ dynamic = ["version", "readme"]
 
 dependencies = [
   'itk',
-  'itk-elastix',
+  'itk-elastix>=0.18.0',
   'itk-genericlabelinterpolator',
   'numpy',
   'pandas',

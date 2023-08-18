@@ -72,13 +72,37 @@ def get_physical_midpoint(
 # Image block streaming helpers
 ###############################################################################
 
+# Terms:
+# - "block": A representation in voxel space with integer image access.
+# - "physical": A representation in physical space with 3D floating-point representation.
+#
+# - "block region": a 2x3 voxel array representing upper and lower voxel bounds
+#                   in ITK access order.
+#                   If "k" is fastest and "i" is slowest:
+#                   [ [ lower_k, lower_j, lower_i ]
+#                       upper_k, upper_j, upper_i ] ]
+#
+# - "physical region": a 2x3 voxel array representing inclusive upper and lower bounds in
+#                      physical space.
+#                      [ [ lower_x, lower_y, lower_z ]
+#                          upper_x, upper_y, upper_z ] ]
+#
+# - "ITK region": an `itk.ImageRegion[3]` representation of a block region.
+#                 itk.ImageRegion[3]( [ [lower_k, lower_j, lower_i], [size_k, size_j, size_i] ])
+
 
 def block_to_physical_size(
     block_size: npt.ArrayLike,
     ref_image: itk.Image,
     transform: itk.Transform = None,
 ) -> npt.ArrayLike:
-    """Convert from voxel block size to corresponding size in physical space"""
+    """
+    Convert from voxel block size to corresponding size in physical space.
+
+    Naive transform approach assumes that both the input and output regions
+    are constrained along x/y/z planes aligned at two point extremes.
+    May not be suitable for deformable regions.
+    """
     block_index = [int(x) for x in block_size]
 
     if transform:
@@ -198,6 +222,7 @@ def get_target_block_region(
     block_region: npt.ArrayLike,
     src_image: itk.Image,
     target_image: itk.Image,
+    src_transform: itk.Transform = None,
     crop_to_target: bool = False,
 ) -> npt.ArrayLike:
     """
@@ -206,7 +231,9 @@ def get_target_block_region(
     """
     target_region = physical_to_block_region(
         physical_region=block_to_physical_region(
-            block_region=block_region, ref_image=src_image
+            block_region=block_region,
+            ref_image=src_image,
+            transform=src_transform,
         ),
         ref_image=target_image,
     )
