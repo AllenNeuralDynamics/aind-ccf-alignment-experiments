@@ -25,6 +25,7 @@ from .point_distance import read_write_probe_image
 
 _yes_to_all = False
 
+
 def main():
     CCF_BASELINE_LABEL_MESH_BUCKET_PATH = (
         "s3://aind-kitware-collab"
@@ -231,6 +232,7 @@ def main():
             [CCF_BASELINE_LABEL_MESH_BUCKET_PATH, *mesh_bucket_paths]
         )
         print(f"Combined mesh label viewer link: {combined_viewer_link}")
+
 
 if __name__ == "__main__":
     main()

@@ -3,55 +3,31 @@
 """
 Helpers for driving registration routines with ITK and ITKElastix
 """
-
+import os
 from typing import List, Tuple, Dict
 
 import itk
 import numpy as np
 
+from .image import get_sample_bounds, get_physical_size, get_physical_midpoint
+
 
 def compute_initial_translation(
     source_image: itk.Image, target_image: itk.Image
-) -> Tuple[itk.TranslationTransform, itk.Image]:
+) -> itk.TranslationTransform[itk.D, 3]:
     """
-    Compute an initial translation to overlay the source image on the target image.
+    Compute the initial overlap transform as the translation to sample
+    from the center of the target image to the center of the source image.
+
+    Assumes content is centered in source and target images.
     """
+    target_midpoint = get_physical_midpoint(target_image)
+    source_midpoint = get_physical_midpoint(source_image)
 
-    init_transform = itk.VersorRigid3DTransform[
-        itk.D
-    ].New()  # Represents 3D rigid transformation with unit quaternion
-    init_transform.SetIdentity()
-
-    transform_initializer = itk.CenteredVersorTransformInitializer[
-        type(target_image), type(source_image)
-    ].New()
-    transform_initializer.SetFixedImage(target_image)
-    transform_initializer.SetMovingImage(source_image)
-    transform_initializer.SetTransform(init_transform)
-    transform_initializer.GeometryOn()  # We compute translation between the center of each image
-    transform_initializer.ComputeRotationOff()  # We have previously verified that spatial orientation aligns
-
-    transform_initializer.InitializeTransform()
-
-    # initial transform maps from the fixed image to the moving image
-    # per ITK ResampleImageFilter convention
     translation_transform = itk.TranslationTransform[itk.D, 3].New()
-    translation_transform.Translate(init_transform.TransformPoint([0, 0, 0]))
+    translation_transform.Translate(source_midpoint - target_midpoint)
 
-    # Apply translation without resampling the image by updating the image origin directly
-    change_information_filter = itk.ChangeInformationImageFilter[
-        type(source_image)
-    ].New()
-    change_information_filter.SetInput(source_image)
-    change_information_filter.SetOutputOrigin(
-        translation_transform.GetInverseTransform().TransformPoint(
-            itk.origin(source_image)
-        )
-    )
-    change_information_filter.ChangeOriginOn()
-    change_information_filter.Update()
-
-    return translation_transform, change_information_filter.GetOutput()
+    return translation_transform
 
 
 def get_elx_itk_transforms(
@@ -135,7 +111,8 @@ def register_elastix(
     target_image: itk.Image,
     parameter_object: itk.ParameterObject = None,
     itk_transform_types: List[type] = None,
-    verbose=False,
+    log_filepath: str = None,
+    verbose: bool = False,
 ) -> Tuple[itk.CompositeTransform, itk.Image, itk.ElastixRegistrationMethod]:
     """
     Compute a series of ITKElastix transforms mapping
@@ -157,6 +134,8 @@ def register_elastix(
             itk.AffineTransform[itk.D, DIMENSION],
             itk.Euler3DTransform[itk.D],
         ]
+    if log_filepath:
+        os.makedirs(os.path.dirname(log_filepath), exist_ok=True)
 
     if verbose:
         print(f"Register with parameter object:{parameter_object}")
@@ -167,8 +146,12 @@ def register_elastix(
         fixed_image=target_image,
         moving_image=source_image,
         parameter_object=parameter_object,
-        log_to_console=verbose,
     )
+
+    if log_filepath:
+        registration_method.SetLogToFile(True)
+        registration_method.SetOutputDirectory(os.path.dirname(log_filepath))
+        registration_method.SetLogFileName(os.path.basename(log_filepath))
 
     # Run registration with `itk-elastix`, may take a few minutes
     registration_method.Update()
