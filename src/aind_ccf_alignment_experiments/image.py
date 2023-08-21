@@ -24,34 +24,11 @@ def get_sample_bounds(image: itk.Image, transform: itk.Transform = None):
     half a voxel in each direction to get the bounds of the space sampled
     by the image.
     """
-    HALF_VOXEL_STEP = 0.5
-    dimension = image.GetImageDimension()
-    lower_index = np.array(
-        image.GetLargestPossibleRegion().GetIndex(), dtype=np.float32
+    return image_to_physical_region(
+        image.GetLargestPossibleRegion(),
+        ref_image=image,
+        src_transform=transform,
     )
-    lower_index -= [-1 * HALF_VOXEL_STEP] * dimension
-    upper_index = np.array(
-        image.GetLargestPossibleRegion().GetUpperIndex(), dtype=np.float32
-    )
-    upper_index += [HALF_VOXEL_STEP] * dimension
-
-    image_bounds = np.array(
-        [
-            image.TransformContinuousIndexToPhysicalPoint(
-                arr_to_continuous_index(lower_index)
-            ),
-            image.TransformContinuousIndexToPhysicalPoint(
-                arr_to_continuous_index(upper_index)
-            ),
-        ]
-    )
-
-    if transform:
-        image_bounds = np.array(
-            [transform.TransformPoint(pt) for pt in image_bounds]
-        )
-
-    return (np.min(image_bounds, axis=0), np.max(image_bounds, axis=0))
 
 
 def get_physical_size(image: itk.Image, transform: itk.Transform = None):
@@ -68,6 +45,34 @@ def get_physical_midpoint(
     return np.mean(bounds, axis=0)
 
 
+def block_to_itk_image(
+    data: npt.ArrayLike, start_index: npt.ArrayLike, reference_image: itk.Image
+) -> itk.Image:
+    """Return an ITK image view into an array block.
+    `data` -> the mapped block data
+    `start_index` -> the image index of the first voxel in the data array in ITK access order.
+    `reference_image` -> reference ITK image metadata for the image,
+        may have empty buffered region.
+    """
+    block_image = itk.image_view_from_array(data)
+
+    buffer_offset = [int(val) for val in start_index]
+    block_image = itk.change_information_image_filter(
+        block_image,
+        change_region=True,
+        output_offset=buffer_offset,
+        change_origin=True,
+        output_origin=reference_image.GetOrigin(),
+        change_spacing=True,
+        output_spacing=reference_image.GetSpacing(),
+        change_direction=True,
+        output_direction=reference_image.GetDirection(),
+    )
+    return itk.extract_image_filter(
+        block_image, extraction_region=block_image.GetBufferedRegion()
+    )
+
+
 ###############################################################################
 # Image block streaming helpers
 ###############################################################################
@@ -76,8 +81,10 @@ def get_physical_midpoint(
 # - "block": A representation in voxel space with integer image access.
 # - "physical": A representation in physical space with 3D floating-point representation.
 #
-# - "block region": a 2x3 voxel array representing upper and lower voxel bounds
+# - "block region": a 2x3 voxel array representing [lower,upper) voxel bounds
 #                   in ITK access order.
+#                   To mimic NumPy indexing the lower bound is inclusive and the upper
+#                   bound is one greater than the last included voxel index.
 #                   If "k" is fastest and "i" is slowest:
 #                   [ [ lower_k, lower_j, lower_i ]
 #                       upper_k, upper_j, upper_i ] ]
@@ -137,41 +144,62 @@ def block_to_physical_region(
 ) -> npt.ArrayLike:
     """Convert from voxel region to corresponding physical space"""
     # block region is a 2x3 matrix where row 0 is the lower bound and row 1 is the upper bound
+    HALF_VOXEL_STEP = 0.5
+
     assert block_region.ndim == 2 and block_region.shape == (2, 3)
+    block_region = np.array(
+        [np.min(block_region, axis=0), np.max(block_region, axis=0)]
+    )
+
+    adjusted_block_region = block_region - HALF_VOXEL_STEP
 
     index_to_physical_func = (
-        lambda row: ref_image.TransformIndexToPhysicalPoint(
-            [int(val) for val in row]
+        lambda row: ref_image.TransformContinuousIndexToPhysicalPoint(
+            arr_to_continuous_index(row)
         )
     )
-    if not transform:
-        return np.apply_along_axis(index_to_physical_func, 1, block_region)
-
-    tfm_func = lambda row: transform.TransformPoint(
-        index_to_physical_func(row)
+    physical_region = np.apply_along_axis(
+        index_to_physical_func, 1, adjusted_block_region
     )
-    return np.apply_along_axis(tfm_func, 1, block_region)
+
+    if transform:
+        tfm_func = lambda row: transform.TransformPoint(row)
+        physical_region = np.apply_along_axis(tfm_func, 1, physical_region)
+
+    return np.array(
+        [np.min(physical_region, axis=0), np.max(physical_region, axis=0)]
+    )
 
 
 def physical_to_block_region(
     physical_region: npt.ArrayLike, ref_image: itk.Image
 ) -> npt.ArrayLike:
-    """Convert from physical region to corresponding voxel block"""
+    """
+    Convert from physical region to corresponding voxel block
+    """
+    HALF_VOXEL_STEP = 0.5
+
     # block region is a 2x3 matrix where row 0 is the lower bound and row 1 is the upper bound
     assert physical_region.ndim == 2 and physical_region.shape == (2, 3)
 
     physical_to_index_func = (
-        lambda row: ref_image.TransformPhysicalPointToIndex(
+        lambda row: ref_image.TransformPhysicalPointToContinuousIndex(
             [float(val) for val in row]
         )
     )
-    return np.apply_along_axis(physical_to_index_func, 1, physical_region)
+    block_region = np.apply_along_axis(
+        physical_to_index_func, 1, physical_region
+    )
+    adjusted_block_region = np.array(
+        [np.min(block_region, axis=0), np.max(block_region, axis=0)]
+    )
+    return adjusted_block_region + HALF_VOXEL_STEP
 
 
 def block_to_image_region(block_region: npt.ArrayLike) -> itk.ImageRegion[3]:
     """Convert from 2x3 bounds representation to itkImageRegion representation"""
     lower_index = [int(val) for val in np.min(block_region, axis=0)]
-    upper_index = [int(val) for val in np.max(block_region, axis=0)]
+    upper_index = [int(val) - 1 for val in np.max(block_region, axis=0)]
 
     region = itk.ImageRegion[3]()
     region.SetIndex(lower_index)
@@ -181,7 +209,9 @@ def block_to_image_region(block_region: npt.ArrayLike) -> itk.ImageRegion[3]:
 
 def image_to_block_region(image_region: itk.ImageRegion[3]) -> npt.ArrayLike:
     """Convert from itkImageRegion to 2x3 bounds representation"""
-    return np.array([image_region.GetIndex(), image_region.GetUpperIndex()])
+    return np.array(
+        [image_region.GetIndex(), np.array(image_region.GetUpperIndex()) + 1]
+    )
 
 
 def physical_to_image_region(
@@ -196,13 +226,15 @@ def physical_to_image_region(
 
 
 def image_to_physical_region(
-    image_region: npt.ArrayLike, ref_image: itk.Image
+    image_region: npt.ArrayLike,
+    ref_image: itk.Image,
+    src_transform: itk.Transform = None,
 ) -> itk.ImageRegion[3]:
     """Convert from physical region to image region"""
     return block_to_physical_region(
-        block_region=image_to_block_region(
-            image_region=image_region, ref_image=ref_image
-        )
+        block_region=image_to_block_region(image_region=image_region),
+        ref_image=ref_image,
+        transform=src_transform,
     )
 
 
@@ -239,6 +271,7 @@ def get_target_block_region(
     )
 
     if crop_to_target:
+        # TODO can we preserve continuous index input?
         image_region = block_to_image_region(block_region=target_region)
         image_region.Crop(target_image.GetLargestPossibleRegion())
         target_region = image_to_block_region(image_region=image_region)
