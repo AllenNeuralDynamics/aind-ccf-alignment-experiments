@@ -152,3 +152,68 @@ def test_block_to_itk_image():
     EXPECTED_BOUNDS = np.array([[0, 0, 0], [6, 6, 6]])
     block_bounds = aind_image.get_sample_bounds(output_image)
     assert np.all(block_bounds == EXPECTED_BOUNDS)
+
+
+def test_physical_region_to_itk_image():
+    input_region = np.array([[0, 0, 0], [5, 5, 5]])
+    input_spacing = np.array([0.1, 0.25, 1.0])
+    input_direction = np.eye(3)
+
+    EXPECTED_SIZE = [50, 20, 5]
+    EXPECTED_ORIGIN = [0.05, 0.125, 0.5]
+
+    output_image = aind_image.physical_region_to_itk_image(
+        input_region, input_spacing, input_direction, extend_beyond=True
+    )
+
+    assert itk.size(output_image) == EXPECTED_SIZE
+    assert itk.spacing(output_image) == input_spacing
+    assert itk.origin(output_image) == EXPECTED_ORIGIN
+    assert np.all(aind_image.get_sample_bounds(output_image) == input_region)
+
+
+def test_physical_region_to_itk_image_with_direction():
+    input_region = np.array([[-25, 0, -25], [0, 25, 0]])
+    input_spacing = np.array([1.0] * 3)
+    input_direction = np.array([[0, 0, -1], [1, 0, 0], [0, -1, 0]])
+
+    EXPECTED_SIZE = [25] * 3
+    EXPECTED_ORIGIN = [-0.5, 0.5, -0.5]
+
+    output_image = aind_image.physical_region_to_itk_image(
+        input_region, input_spacing, input_direction, extend_beyond=True
+    )
+
+    assert itk.size(output_image) == EXPECTED_SIZE
+    assert itk.spacing(output_image) == input_spacing
+    assert itk.origin(output_image) == EXPECTED_ORIGIN
+    assert np.all(aind_image.get_sample_bounds(output_image) == input_region)
+
+
+def test_estimate_bounding_box():
+    physical_region = np.array([[-1, 1, 1], [1, -1, -1]])
+    zero_transform = itk.TranslationTransform[itk.D, 3].New()
+
+    output_region = aind_image.estimate_bounding_box(
+        physical_region=physical_region, transform=zero_transform
+    )
+    assert np.all(output_region[0, :] == np.min(physical_region, axis=0))
+    assert np.all(output_region[1, :] == np.max(physical_region, axis=0))
+
+    rotate_45deg_transform = itk.AffineTransform[itk.D, 3].New()
+    rotate_45deg_transform.Rotate3D([0, 0, 1], 0.785398)
+    output_region = aind_image.estimate_bounding_box(
+        physical_region=physical_region, transform=rotate_45deg_transform
+    )
+
+    assert np.all(
+        np.isclose(
+            output_region,
+            np.array(
+                [
+                    [-1 * (2**0.5), -1 * (2**0.5), -1],
+                    [(2**0.5), (2**0.5), 1],
+                ]
+            ),
+        )
+    )

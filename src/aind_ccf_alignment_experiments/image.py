@@ -2,12 +2,18 @@
 
 """General ITK image utilities for mapping between voxel and physical spaces."""
 
+import logging
+import itertools
+from typing import List
+
 import itk
 import numpy as np
 import numpy.typing as npt
 
 
 def arr_to_continuous_index(arr: npt.ArrayLike) -> itk.ContinuousIndex:
+    """Convert an array into itk.ContinuousIndex format for image access."""
+    arr = np.array(arr)
     assert arr.ndim == 1
     itk_index = itk.ContinuousIndex[itk.D, arr.shape[0]]()
     for index in range(arr.shape[0]):
@@ -24,11 +30,50 @@ def get_sample_bounds(image: itk.Image, transform: itk.Transform = None):
     half a voxel in each direction to get the bounds of the space sampled
     by the image.
     """
+    if image.GetLargestPossibleRegion() != image.GetBufferedRegion():
+        logging.warn(
+            "Buffered and largest regions do not match."
+            "Sample bounds may extend beyond buffered region."
+        )
     return image_to_physical_region(
         image.GetLargestPossibleRegion(),
         ref_image=image,
         src_transform=transform,
     )
+
+
+def estimate_bounding_box(
+    physical_region: npt.ArrayLike, transform: itk.Transform
+) -> npt.ArrayLike:
+    """
+    Estimate an axis-aligned bounding box for a physical region
+    with a transform applied.
+
+    Returns two points representing axis-aligned bounds that contain
+    the corners of the transformed region.
+
+    The resulting bounding box may not fully contain all transformed
+    image points in the case that a deformable transform is applied.
+    Also, an axis-aligned bounding box may not be a good representation
+    of an image that is not aligned to physical axes. Use with care.
+    """
+    DIMENSION = 3
+    NUM_CORNERS = 8
+    assert physical_region.ndim == 2 and physical_region.shape == (
+        2,
+        DIMENSION,
+    )
+    arr = np.zeros([NUM_CORNERS, DIMENSION])
+    for index, (i, j, k) in enumerate(
+        itertools.product(
+            physical_region[:, 0], physical_region[:, 1], physical_region[:, 2]
+        )
+    ):
+        pt = np.array(
+            transform.TransformPoint([float(val) for val in (i, j, k)])
+        )
+        arr[index, :] = pt
+    return np.array([np.min(arr, axis=0), np.max(arr, axis=0)])
 
 
 def get_physical_size(image: itk.Image, transform: itk.Transform = None):
@@ -71,6 +116,92 @@ def block_to_itk_image(
     return itk.extract_image_filter(
         block_image, extraction_region=block_image.GetBufferedRegion()
     )
+
+
+def physical_region_to_itk_image(
+    physical_region: npt.ArrayLike,
+    spacing: List[float],
+    direction: itk.Matrix,
+    extend_beyond: bool = True,
+) -> itk.Image:
+    """
+    Represent a physical region as an unallocated itk.Image object.
+
+    An itk.Image metadata object represents a mapping from continuous
+    physical space with X,Y,Z axes to a discrete voxel space with
+    I,J,K axes. This method initializes an itk.Image to sample a
+    given three-dimensional space over a discrete voxel grid.
+
+    A procedure is developed as follows:
+    1. Process the requested direction and spacing to get the step size
+        in physical space corresponding to a step in any voxel direction;
+    2. Subdivide the physical region into discrete steps;
+    3. Align to the center of the region such that any over/underlap
+        is symmetric on opposite sides of the grid;
+    4. Compute the origin at the centerpoint of the 0th voxel;
+    5. Compute the output voxel size according to the equation:
+
+        size = ((D * S) ^ -1) * (upper_bound - lower_bound)
+
+    The resulting image is a metadata representation of the relationship
+    between spaces and has no pixel buffer allocation.
+
+    It is assumed that the input direction represents some 90 degree
+    orientation mapping from I,J,K to X,Y,Z axes.
+    """
+    assert not np.any(np.isclose(spacing, 0))
+    assert np.all((direction == 0) | (direction == 1) | (direction == -1))
+
+    # Set up unit vectors mapping from voxel to physical space
+    voxel_step_vecs = np.matmul(np.array(direction), np.eye(3) * spacing)
+    physical_step = np.ravel(
+        np.take_along_axis(
+            voxel_step_vecs,
+            np.expand_dims(np.argmax(np.abs(voxel_step_vecs), axis=1), axis=1),
+            axis=1,
+        )
+    )
+    assert physical_step.ndim == 1 and physical_step.shape[0] == 3
+    assert np.all(physical_step)
+
+    output_grid_size_f = (
+        np.max(physical_region, axis=0) - np.min(physical_region, axis=0)
+    ) / np.abs(physical_step)
+    output_grid_size = (
+        np.ceil(output_grid_size_f)
+        if extend_beyond
+        else np.floor(output_grid_size_f)
+    )
+
+    centerpoint = np.mean(physical_region, axis=0)
+    output_region = np.array(
+        [
+            centerpoint - (output_grid_size / 2) * physical_step,
+            centerpoint + (output_grid_size / 2) * physical_step,
+        ]
+    )
+
+    voxel_0_corner = np.array(
+        [
+            np.min(output_region, axis=0)[dim]
+            if physical_step[dim] > 0
+            else np.max(output_region, axis=0)[dim]
+            for dim in range(3)
+        ]
+    )
+    voxel_0_origin = voxel_0_corner + 0.5 * physical_step
+    output_size = np.matmul(
+        np.linalg.inv(voxel_step_vecs), (output_region[1, :] - voxel_0_corner)
+    )
+
+    output_image = itk.Image[itk.F, 3].New()
+    output_image.SetOrigin(voxel_0_origin)
+    output_image.SetSpacing(spacing)
+    output_image.SetDirection(direction)
+    output_image.SetRegions(
+        [int(size) for size in output_size]
+    )  # always 0 index offset
+    return output_image
 
 
 ###############################################################################
@@ -162,12 +293,13 @@ def block_to_physical_region(
         index_to_physical_func, 1, adjusted_block_region
     )
 
-    if transform:
-        tfm_func = lambda row: transform.TransformPoint(row)
-        physical_region = np.apply_along_axis(tfm_func, 1, physical_region)
+    if not transform:
+        return np.array(
+            [np.min(physical_region, axis=0), np.max(physical_region, axis=0)]
+        )
 
-    return np.array(
-        [np.min(physical_region, axis=0), np.max(physical_region, axis=0)]
+    return estimate_bounding_box(
+        physical_region=physical_region, transform=transform
     )
 
 

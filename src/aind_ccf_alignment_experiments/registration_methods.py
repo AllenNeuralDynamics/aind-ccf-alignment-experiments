@@ -323,7 +323,7 @@ def _flatten_composite_transform_recursive(
 
     transform_list = []
     for index in range(t.GetNumberOfTransforms()):
-        transform_list.append(
+        transform_list += [
             *_flatten_composite_transform_recursive(t.GetNthTransform(index))
-        )
+        ]
     return transform_list
