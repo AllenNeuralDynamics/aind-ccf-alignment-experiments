@@ -22,6 +22,7 @@ import numpy.typing as npt
 from .url import get_s3_https_bucket_data_url
 
 logger = logging.getLogger(__name__)
+dask_logger = logging.getLogger('distributed.worker')
 
 # We have foreknowledge that 't' and 'c' axes are empty (size 1)
 # ITK and OME-Zarr/numpy access conventions are reversed
