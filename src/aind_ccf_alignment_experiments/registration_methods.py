@@ -4,12 +4,13 @@
 Helpers for driving registration routines with ITK and ITKElastix
 """
 import os
+import logging
 from typing import List, Tuple, Dict
 
 import itk
 import numpy as np
 
-from .image import get_sample_bounds, get_physical_size, get_physical_midpoint
+from .image import get_physical_midpoint, physical_region_to_itk_image, image_to_physical_region
 
 
 def compute_initial_translation(
@@ -148,6 +149,30 @@ def register_elastix(
     if verbose:
         print(f"Register with parameter object:{parameter_object}")
 
+    preprocess_initial_transform = \
+        initial_transform and itk.BSplineTransform[itk.D,3,3] in itk_transform_types
+    if preprocess_initial_transform:
+        # B-spline requires Jacobian which is not supported by AdvancedExternalTransform
+        # so we must resample the image ourselves and discard the initial transform
+        physical_region=image_to_physical_region(
+            target_image.GetBufferedRegion(),
+            target_image,
+            initial_transform
+        )
+        logging.debug(f'Resampling target image to initial domain {physical_region}')
+        target_image = itk.resample_image_filter(
+            target_image,
+            transform=initial_transform,
+            use_reference_image=True,
+            reference_image=physical_region_to_itk_image(
+                physical_region=physical_region,
+                spacing=itk.spacing(target_image),
+                direction=np.array(target_image.GetDirection()),
+                extend_beyond=True
+            )
+        )
+        itk_transform_types = itk_transform_types[:-1]
+
     registration_method = itk.ElastixRegistrationMethod[
         type(target_image), type(source_image)
     ].New(
@@ -156,7 +181,7 @@ def register_elastix(
         parameter_object=parameter_object,
     )
 
-    if initial_transform:
+    if initial_transform and not preprocess_initial_transform:
         registration_method.SetExternalInitialTransform(initial_transform)
 
     if log_filepath:
@@ -170,7 +195,7 @@ def register_elastix(
     itk_composite_transform = get_elx_itk_transforms(
         registration_method, itk_transform_types
     )
-    if initial_transform:
+    if initial_transform and not preprocess_initial_transform:
         itk_composite_transform.AppendTransform(initial_transform)
         itk_composite_transform = flatten_composite_transform(
             itk_composite_transform

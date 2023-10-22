@@ -149,8 +149,8 @@ def physical_region_to_itk_image(
     It is assumed that the input direction represents some 90 degree
     orientation mapping from I,J,K to X,Y,Z axes.
     """
-    assert not np.any(np.isclose(spacing, 0))
-    assert np.all((direction == 0) | (direction == 1) | (direction == -1))
+    assert not np.any(np.isclose(spacing, 0)), f'Invalid spacing: {spacing}'
+    assert np.all((direction == 0) | (direction == 1) | (direction == -1)), f'Invalid direction: {direction}'
 
     # Set up unit vectors mapping from voxel to physical space
     voxel_step_vecs = np.matmul(np.array(direction), np.eye(3) * spacing)

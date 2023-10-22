@@ -10,6 +10,7 @@ Deals in particular with loading SmartSPIM data as an ITK image:
 - Stream SmartSPIM subregions to fit on disk
 """
 
+import logging
 import json
 
 import itk
@@ -19,6 +20,8 @@ import numpy as np
 import numpy.typing as npt
 
 from .url import get_s3_https_bucket_data_url
+
+logger = logging.getLogger(__name__)
 
 # We have foreknowledge that 't' and 'c' axes are empty (size 1)
 # ITK and OME-Zarr/numpy access conventions are reversed
@@ -66,6 +69,7 @@ def make_smartspim_stream_reader(
         dataset_id=sample_level,
         fs=fs,
     )
+    smartspim_reader.GetOutput().SetRequestedRegion(itk.ImageRegion[3]([0,0,0]))
     return smartspim_reader
 
 
